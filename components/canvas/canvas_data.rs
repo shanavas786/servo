@@ -2,7 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use azure::azure::AzFloat;
 use azure::azure_hl::SurfacePattern;
 use azure::azure_hl::{AntialiasMode, AsAzurePoint, CapStyle, CompositionOp, JoinStyle};
 use azure::azure_hl::{
@@ -31,13 +30,13 @@ enum PathState {
     /// Path builder in user-space. If a transform has been applied
     /// but no further path operations have occurred, it is stored
     /// in the optional field.
-    UserSpacePathBuilder(PathBuilder, Option<Transform2D<AzFloat>>),
+    UserSpacePathBuilder(PathBuilder, Option<Transform2D<f32>>),
     /// Path builder in device-space.
     DeviceSpacePathBuilder(PathBuilder),
     /// Path in user-space. If a transform has been applied but
     /// but no further path operations have occurred, it is stored
     /// in the optional field.
-    UserSpacePath(Path, Option<Transform2D<AzFloat>>),
+    UserSpacePath(Path, Option<Transform2D<f32>>),
 }
 
 impl PathState {
@@ -62,16 +61,16 @@ impl PathState {
 /// applied to any points to ensure they are in the matching device space.
 struct PathBuilderRef<'a> {
     builder: &'a PathBuilder,
-    transform: Transform2D<AzFloat>,
+    transform: Transform2D<f32>,
 }
 
 impl<'a> PathBuilderRef<'a> {
-    fn line_to(&self, pt: &Point2D<AzFloat>) {
+    fn line_to(&self, pt: &Point2D<f32>) {
         let pt = self.transform.transform_point(pt);
         self.builder.line_to(pt);
     }
 
-    fn move_to(&self, pt: &Point2D<AzFloat>) {
+    fn move_to(&self, pt: &Point2D<f32>) {
         let pt = self.transform.transform_point(pt);
         self.builder.move_to(pt);
     }
@@ -95,7 +94,7 @@ impl<'a> PathBuilderRef<'a> {
         self.builder.close();
     }
 
-    fn quadratic_curve_to(&self, cp: &Point2D<AzFloat>, endpoint: &Point2D<AzFloat>) {
+    fn quadratic_curve_to(&self, cp: &Point2D<f32>, endpoint: &Point2D<f32>) {
         self.builder.quadratic_curve_to(
             &self.transform.transform_point(cp),
             &self.transform.transform_point(endpoint),
@@ -104,9 +103,9 @@ impl<'a> PathBuilderRef<'a> {
 
     fn bezier_curve_to(
         &self,
-        cp1: &Point2D<AzFloat>,
-        cp2: &Point2D<AzFloat>,
-        endpoint: &Point2D<AzFloat>,
+        cp1: &Point2D<f32>,
+        cp2: &Point2D<f32>,
+        endpoint: &Point2D<f32>,
     ) {
         self.builder.bezier_curve_to(
             &self.transform.transform_point(cp1),
@@ -117,10 +116,10 @@ impl<'a> PathBuilderRef<'a> {
 
     fn arc(
         &self,
-        center: &Point2D<AzFloat>,
-        radius: AzFloat,
-        start_angle: AzFloat,
-        end_angle: AzFloat,
+        center: &Point2D<f32>,
+        radius: f32,
+        start_angle: f32,
+        end_angle: f32,
         ccw: bool,
     ) {
         let center = self.transform.transform_point(center);
@@ -130,12 +129,12 @@ impl<'a> PathBuilderRef<'a> {
 
     pub fn ellipse(
         &self,
-        center: &Point2D<AzFloat>,
-        radius_x: AzFloat,
-        radius_y: AzFloat,
-        rotation_angle: AzFloat,
-        start_angle: AzFloat,
-        end_angle: AzFloat,
+        center: &Point2D<f32>,
+        radius_x: f32,
+        radius_y: f32,
+        rotation_angle: f32,
+        start_angle: f32,
+        end_angle: f32,
         ccw: bool,
     ) {
         let center = self.transform.transform_point(center);
@@ -150,7 +149,7 @@ impl<'a> PathBuilderRef<'a> {
         );
     }
 
-    fn current_point(&self) -> Option<Point2D<AzFloat>> {
+    fn current_point(&self) -> Option<Point2D<f32>> {
         let inverse = match self.transform.inverse() {
             Some(i) => i,
             None => return None,
@@ -469,11 +468,11 @@ impl<'a> CanvasData<'a> {
         chan.send(result).unwrap();
     }
 
-    pub fn move_to(&mut self, point: &Point2D<AzFloat>) {
+    pub fn move_to(&mut self, point: &Point2D<f32>) {
         self.path_builder().move_to(point);
     }
 
-    pub fn line_to(&mut self, point: &Point2D<AzFloat>) {
+    pub fn line_to(&mut self, point: &Point2D<f32>) {
         self.path_builder().line_to(point);
     }
 
@@ -545,32 +544,32 @@ impl<'a> CanvasData<'a> {
         self.path_builder().rect(rect);
     }
 
-    pub fn quadratic_curve_to(&mut self, cp: &Point2D<AzFloat>, endpoint: &Point2D<AzFloat>) {
+    pub fn quadratic_curve_to(&mut self, cp: &Point2D<f32>, endpoint: &Point2D<f32>) {
         self.path_builder().quadratic_curve_to(cp, endpoint);
     }
 
     pub fn bezier_curve_to(
         &mut self,
-        cp1: &Point2D<AzFloat>,
-        cp2: &Point2D<AzFloat>,
-        endpoint: &Point2D<AzFloat>,
+        cp1: &Point2D<f32>,
+        cp2: &Point2D<f32>,
+        endpoint: &Point2D<f32>,
     ) {
         self.path_builder().bezier_curve_to(cp1, cp2, endpoint);
     }
 
     pub fn arc(
         &mut self,
-        center: &Point2D<AzFloat>,
-        radius: AzFloat,
-        start_angle: AzFloat,
-        end_angle: AzFloat,
+        center: &Point2D<f32>,
+        radius: f32,
+        start_angle: f32,
+        end_angle: f32,
         ccw: bool,
     ) {
         self.path_builder()
             .arc(center, radius, start_angle, end_angle, ccw);
     }
 
-    pub fn arc_to(&mut self, cp1: &Point2D<AzFloat>, cp2: &Point2D<AzFloat>, radius: AzFloat) {
+    pub fn arc_to(&mut self, cp1: &Point2D<f32>, cp2: &Point2D<f32>, radius: f32) {
         let cp0 = match self.path_builder().current_point() {
             Some(p) => p.as_azure_point(),
             None => return,
@@ -635,12 +634,12 @@ impl<'a> CanvasData<'a> {
 
     pub fn ellipse(
         &mut self,
-        center: &Point2D<AzFloat>,
-        radius_x: AzFloat,
-        radius_y: AzFloat,
-        rotation_angle: AzFloat,
-        start_angle: AzFloat,
-        end_angle: AzFloat,
+        center: &Point2D<f32>,
+        radius_x: f32,
+        radius_y: f32,
+        rotation_angle: f32,
+        start_angle: f32,
+        end_angle: f32,
         ccw: bool,
     ) {
         self.path_builder().ellipse(
@@ -852,15 +851,15 @@ impl<'a> CanvasData<'a> {
         self.drawtarget.draw_surface_with_shadow(
             new_draw_target.snapshot(),
             &Point2D::new(
-                shadow_src_rect.origin.x as AzFloat,
-                shadow_src_rect.origin.y as AzFloat,
+                shadow_src_rect.origin.x as f32,
+                shadow_src_rect.origin.y as f32,
             ),
             &self.state.shadow_color,
             &Vector2D::new(
-                self.state.shadow_offset_x as AzFloat,
-                self.state.shadow_offset_y as AzFloat,
+                self.state.shadow_offset_x as f32,
+                self.state.shadow_offset_y as f32,
             ),
-            (self.state.shadow_blur / 2.0f64) as AzFloat,
+            (self.state.shadow_blur / 2.0f64) as f32,
             self.state.draw_options.composition,
         );
     }
@@ -1050,12 +1049,12 @@ pub trait ToAzureStyle {
 }
 
 impl ToAzureStyle for Rect<f64> {
-    type Target = Rect<AzFloat>;
+    type Target = Rect<f32>;
 
-    fn to_azure_style(self) -> Rect<AzFloat> {
+    fn to_azure_style(self) -> Rect<f32> {
         Rect::new(
-            Point2D::new(self.origin.x as AzFloat, self.origin.y as AzFloat),
-            Size2D::new(self.size.width as AzFloat, self.size.height as AzFloat),
+            Point2D::new(self.origin.x as f32, self.origin.y as f32),
+            Size2D::new(self.size.width as f32, self.size.height as f32),
         )
     }
 }
@@ -1154,19 +1153,19 @@ impl ToAzurePattern for FillOrStrokeStyle {
                     .stops
                     .iter()
                     .map(|s| GradientStop {
-                        offset: s.offset as AzFloat,
+                        offset: s.offset as f32,
                         color: s.color.to_azure_style(),
                     })
                     .collect();
 
                 Pattern::LinearGradient(LinearGradientPattern::new(
                     &Point2D::new(
-                        linear_gradient_style.x0 as AzFloat,
-                        linear_gradient_style.y0 as AzFloat,
+                        linear_gradient_style.x0 as f32,
+                        linear_gradient_style.y0 as f32,
                     ),
                     &Point2D::new(
-                        linear_gradient_style.x1 as AzFloat,
-                        linear_gradient_style.y1 as AzFloat,
+                        linear_gradient_style.x1 as f32,
+                        linear_gradient_style.y1 as f32,
                     ),
                     drawtarget.create_gradient_stops(&gradient_stops, ExtendMode::Clamp),
                     &Transform2D::identity(),
@@ -1177,22 +1176,22 @@ impl ToAzurePattern for FillOrStrokeStyle {
                     .stops
                     .iter()
                     .map(|s| GradientStop {
-                        offset: s.offset as AzFloat,
+                        offset: s.offset as f32,
                         color: s.color.to_azure_style(),
                     })
                     .collect();
 
                 Pattern::RadialGradient(RadialGradientPattern::new(
                     &Point2D::new(
-                        radial_gradient_style.x0 as AzFloat,
-                        radial_gradient_style.y0 as AzFloat,
+                        radial_gradient_style.x0 as f32,
+                        radial_gradient_style.y0 as f32,
                     ),
                     &Point2D::new(
-                        radial_gradient_style.x1 as AzFloat,
-                        radial_gradient_style.y1 as AzFloat,
+                        radial_gradient_style.x1 as f32,
+                        radial_gradient_style.y1 as f32,
                     ),
-                    radial_gradient_style.r0 as AzFloat,
-                    radial_gradient_style.r1 as AzFloat,
+                    radial_gradient_style.r0 as f32,
+                    radial_gradient_style.r1 as f32,
                     drawtarget.create_gradient_stops(&gradient_stops, ExtendMode::Clamp),
                     &Transform2D::identity(),
                 ))
@@ -1221,10 +1220,10 @@ impl ToAzureStyle for RGBA {
 
     fn to_azure_style(self) -> Color {
         Color::rgba(
-            self.red_f32() as AzFloat,
-            self.green_f32() as AzFloat,
-            self.blue_f32() as AzFloat,
-            self.alpha_f32() as AzFloat,
+            self.red_f32(),
+            self.green_f32(),
+            self.blue_f32(),
+            self.alpha_f32(),
         )
     }
 }
