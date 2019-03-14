@@ -8,8 +8,8 @@ use crate::parser::{Parse, ParserContext};
 use crate::values::generics::svg as generic;
 use crate::values::specified::color::Color;
 use crate::values::specified::url::SpecifiedUrl;
-use crate::values::specified::LengthOrPercentage;
-use crate::values::specified::{NonNegativeLengthOrPercentage, NonNegativeNumber};
+use crate::values::specified::LengthPercentage;
+use crate::values::specified::{NonNegativeLengthPercentage, NonNegativeNumber};
 use crate::values::specified::{Number, Opacity};
 use crate::values::CustomIdent;
 use cssparser::Parser;
@@ -23,85 +23,36 @@ pub type SVGPaint = generic::SVGPaint<Color, SpecifiedUrl>;
 /// Specified SVG Paint Kind value
 pub type SVGPaintKind = generic::SVGPaintKind<Color, SpecifiedUrl>;
 
-#[cfg(feature = "gecko")]
-fn is_context_value_enabled() -> bool {
-    // The prefs can only be mutated on the main thread, so it is safe
-    // to read whenever we are on the main thread or the main thread is
-    // blocked.
-    use crate::gecko_bindings::structs::mozilla;
-    unsafe { mozilla::StaticPrefs_sVarCache_gfx_font_rendering_opentype_svg_enabled }
-}
-#[cfg(not(feature = "gecko"))]
-fn is_context_value_enabled() -> bool {
-    false
-}
-
-fn parse_context_value<'i, 't, T>(
-    input: &mut Parser<'i, 't>,
-    value: T,
-) -> Result<T, ParseError<'i>> {
-    if !is_context_value_enabled() {
-        return Err(input.new_custom_error(StyleParseErrorKind::UnspecifiedError));
-    }
-
-    input.expect_ident_matching("context-value")?;
-    Ok(value)
-}
-
 /// A value of <length> | <percentage> | <number> for stroke-dashoffset.
 /// <https://www.w3.org/TR/SVG11/painting.html#StrokeProperties>
-pub type SvgLengthOrPercentageOrNumber =
-    generic::SvgLengthOrPercentageOrNumber<LengthOrPercentage, Number>;
+pub type SvgLengthPercentageOrNumber =
+    generic::SvgLengthPercentageOrNumber<LengthPercentage, Number>;
 
 /// <length> | <percentage> | <number> | context-value
-pub type SVGLength = generic::SVGLength<SvgLengthOrPercentageOrNumber>;
+pub type SVGLength = generic::SVGLength<SvgLengthPercentageOrNumber>;
 
-impl Parse for SVGLength {
-    fn parse<'i, 't>(
-        context: &ParserContext,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self, ParseError<'i>> {
-        input
-            .try(|i| SvgLengthOrPercentageOrNumber::parse(context, i))
-            .map(Into::into)
-            .or_else(|_| parse_context_value(input, generic::SVGLength::ContextValue))
-    }
-}
-
-impl From<SvgLengthOrPercentageOrNumber> for SVGLength {
-    fn from(length: SvgLengthOrPercentageOrNumber) -> Self {
+impl From<SvgLengthPercentageOrNumber> for SVGLength {
+    fn from(length: SvgLengthPercentageOrNumber) -> Self {
         generic::SVGLength::Length(length)
     }
 }
 
 /// A value of <length> | <percentage> | <number> for stroke-width/stroke-dasharray.
 /// <https://www.w3.org/TR/SVG11/painting.html#StrokeProperties>
-pub type NonNegativeSvgLengthOrPercentageOrNumber =
-    generic::SvgLengthOrPercentageOrNumber<NonNegativeLengthOrPercentage, NonNegativeNumber>;
+pub type NonNegativeSvgLengthPercentageOrNumber =
+    generic::SvgLengthPercentageOrNumber<NonNegativeLengthPercentage, NonNegativeNumber>;
 
 /// A non-negative version of SVGLength.
-pub type SVGWidth = generic::SVGLength<NonNegativeSvgLengthOrPercentageOrNumber>;
+pub type SVGWidth = generic::SVGLength<NonNegativeSvgLengthPercentageOrNumber>;
 
-impl Parse for SVGWidth {
-    fn parse<'i, 't>(
-        context: &ParserContext,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self, ParseError<'i>> {
-        input
-            .try(|i| NonNegativeSvgLengthOrPercentageOrNumber::parse(context, i))
-            .map(Into::into)
-            .or_else(|_| parse_context_value(input, generic::SVGLength::ContextValue))
-    }
-}
-
-impl From<NonNegativeSvgLengthOrPercentageOrNumber> for SVGWidth {
-    fn from(length: NonNegativeSvgLengthOrPercentageOrNumber) -> Self {
+impl From<NonNegativeSvgLengthPercentageOrNumber> for SVGWidth {
+    fn from(length: NonNegativeSvgLengthPercentageOrNumber) -> Self {
         generic::SVGLength::Length(length)
     }
 }
 
 /// [ <length> | <percentage> | <number> ]# | context-value
-pub type SVGStrokeDashArray = generic::SVGStrokeDashArray<NonNegativeSvgLengthOrPercentageOrNumber>;
+pub type SVGStrokeDashArray = generic::SVGStrokeDashArray<NonNegativeSvgLengthPercentageOrNumber>;
 
 impl Parse for SVGStrokeDashArray {
     fn parse<'i, 't>(
@@ -110,36 +61,23 @@ impl Parse for SVGStrokeDashArray {
     ) -> Result<Self, ParseError<'i>> {
         if let Ok(values) = input.try(|i| {
             CommaWithSpace::parse(i, |i| {
-                NonNegativeSvgLengthOrPercentageOrNumber::parse(context, i)
+                NonNegativeSvgLengthPercentageOrNumber::parse(context, i)
             })
         }) {
-            Ok(generic::SVGStrokeDashArray::Values(values))
-        } else if let Ok(_) = input.try(|i| i.expect_ident_matching("none")) {
-            Ok(generic::SVGStrokeDashArray::Values(vec![]))
-        } else {
-            parse_context_value(input, generic::SVGStrokeDashArray::ContextValue)
+            return Ok(generic::SVGStrokeDashArray::Values(values));
+        }
+
+        try_match_ident_ignore_ascii_case! { input,
+            "context-value" if generic::is_context_value_enabled(context) => {
+                Ok(generic::SVGStrokeDashArray::ContextValue)
+            },
+            "none" => Ok(generic::SVGStrokeDashArray::Values(vec![])),
         }
     }
 }
 
 /// <opacity-value> | context-fill-opacity | context-stroke-opacity
 pub type SVGOpacity = generic::SVGOpacity<Opacity>;
-
-impl Parse for SVGOpacity {
-    fn parse<'i, 't>(
-        context: &ParserContext,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self, ParseError<'i>> {
-        if let Ok(opacity) = input.try(|i| Opacity::parse(context, i)) {
-            return Ok(generic::SVGOpacity::Opacity(opacity));
-        }
-
-        try_match_ident_ignore_ascii_case! { input,
-            "context-fill-opacity" => Ok(generic::SVGOpacity::ContextFillOpacity),
-            "context-stroke-opacity" => Ok(generic::SVGOpacity::ContextStrokeOpacity),
-        }
-    }
-}
 
 /// The specified value for a single CSS paint-order property.
 #[repr(u8)]

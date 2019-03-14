@@ -24,6 +24,7 @@ use crate::dom::bindings::codegen::Bindings::DocumentBinding::{
     DocumentMethods, DocumentReadyState,
 };
 use crate::dom::bindings::codegen::Bindings::EventBinding::EventInit;
+use crate::dom::bindings::codegen::Bindings::NavigatorBinding::NavigatorMethods;
 use crate::dom::bindings::codegen::Bindings::TransitionEventBinding::TransitionEventInit;
 use crate::dom::bindings::codegen::Bindings::WindowBinding::WindowMethods;
 use crate::dom::bindings::conversions::{
@@ -99,6 +100,7 @@ use js::glue::GetWindowProxyClass;
 use js::jsapi::{JSAutoCompartment, JSContext, JS_SetWrapObjectCallbacks};
 use js::jsapi::{JSTracer, SetWindowProxyClass};
 use js::jsval::UndefinedValue;
+use js::rust::ParentRuntime;
 use metrics::{PaintTimeMetrics, MAX_TASK_NS};
 use mime::{self, Mime};
 use msg::constellation_msg::{
@@ -117,7 +119,7 @@ use net_traits::{
 };
 use profile_traits::mem::{self as profile_mem, OpaqueSender, ReportsChan};
 use profile_traits::time::{self as profile_time, profile, ProfilerCategory};
-use script_layout_interface::message::{self, Msg, NewLayoutThreadInfo, ReflowGoal};
+use script_layout_interface::message::{self, LayoutThreadInit, Msg, ReflowGoal};
 use script_traits::webdriver_msg::WebDriverScriptCommand;
 use script_traits::CompositorEvent::{
     CompositionEvent, KeyboardEvent, MouseButtonEvent, MouseMoveEvent, ResizeEvent, TouchEvent,
@@ -145,6 +147,7 @@ use std::result::Result;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime};
+use style::dom::OpaqueNode;
 use style::thread_state::{self, ThreadState};
 use time::{at_utc, get_time, precise_time_ns, Timespec};
 use url::percent_encoding::percent_decode;
@@ -724,6 +727,13 @@ impl ScriptThreadFactory for ScriptThread {
 }
 
 impl ScriptThread {
+    pub fn runtime_handle() -> ParentRuntime {
+        SCRIPT_THREAD_ROOT.with(|root| {
+            let script_thread = unsafe { &*root.get().unwrap() };
+            script_thread.js_runtime.prepare_for_new_child()
+        })
+    }
+
     pub unsafe fn note_newly_transitioning_nodes(nodes: Vec<UntrustedNodeAddress>) {
         SCRIPT_THREAD_ROOT.with(|root| {
             let script_thread = &*root.get().unwrap();
@@ -1008,7 +1018,7 @@ impl ScriptThread {
         port: Receiver<MainThreadScriptMsg>,
         chan: Sender<MainThreadScriptMsg>,
     ) -> ScriptThread {
-        let runtime = unsafe { new_rt_and_cx() };
+        let runtime = new_rt_and_cx();
         let cx = runtime.cx();
 
         unsafe {
@@ -1418,7 +1428,7 @@ impl ScriptThread {
                     ChangeFrameVisibilityStatus(id, ..) => Some(id),
                     NotifyVisibilityChange(id, ..) => Some(id),
                     Navigate(id, ..) => Some(id),
-                    PostMessage(id, ..) => Some(id),
+                    PostMessage { target: id, .. } => Some(id),
                     UpdatePipelineId(_, _, id, _) => Some(id),
                     UpdateHistoryState(id, ..) => Some(id),
                     RemoveHistoryStates(id, ..) => Some(id),
@@ -1591,9 +1601,19 @@ impl ScriptThread {
                 browsing_context_id,
                 visible,
             ),
-            ConstellationControlMsg::PostMessage(pipeline_id, origin, data) => {
-                self.handle_post_message_msg(pipeline_id, origin, data)
-            },
+            ConstellationControlMsg::PostMessage {
+                target: target_pipeline_id,
+                source: source_pipeline_id,
+                source_browsing_context,
+                target_origin: origin,
+                data,
+            } => self.handle_post_message_msg(
+                target_pipeline_id,
+                source_pipeline_id,
+                source_browsing_context,
+                origin,
+                data,
+            ),
             ConstellationControlMsg::UpdatePipelineId(
                 parent_pipeline_id,
                 browsing_context_id,
@@ -1903,7 +1923,7 @@ impl ScriptThread {
             if node_address == UntrustedNodeAddress(ptr::null()) {
                 window.update_viewport_for_scroll(-scroll_offset.x, -scroll_offset.y);
             } else {
-                scroll_offsets.insert(node_address, -*scroll_offset);
+                scroll_offsets.insert(OpaqueNode(node_address.0 as usize), -*scroll_offset);
             }
         }
         window.set_scroll_offsets(scroll_offsets)
@@ -1925,7 +1945,7 @@ impl ScriptThread {
         let layout_pair = unbounded();
         let layout_chan = layout_pair.0.clone();
 
-        let msg = message::Msg::CreateLayoutThread(NewLayoutThreadInfo {
+        let msg = message::Msg::CreateLayoutThread(LayoutThreadInit {
             id: new_pipeline_id,
             url: load_data.url.clone(),
             is_parent: false,
@@ -2079,12 +2099,33 @@ impl ScriptThread {
     fn handle_post_message_msg(
         &self,
         pipeline_id: PipelineId,
+        source_pipeline_id: PipelineId,
+        source_browsing_context: TopLevelBrowsingContextId,
         origin: Option<ImmutableOrigin>,
         data: Vec<u8>,
     ) {
         match { self.documents.borrow().find_window(pipeline_id) } {
-            None => return warn!("postMessage after pipeline {} closed.", pipeline_id),
-            Some(window) => window.post_message(origin, StructuredCloneData::Vector(data)),
+            None => return warn!("postMessage after target pipeline {} closed.", pipeline_id),
+            Some(window) => {
+                // FIXME: synchronously talks to constellation.
+                // send the required info as part of postmessage instead.
+                let source = match self.remote_window_proxy(
+                    &*window.global(),
+                    source_browsing_context,
+                    source_pipeline_id,
+                    None,
+                ) {
+                    None => {
+                        return warn!(
+                            "postMessage after source pipeline {} closed.",
+                            source_pipeline_id,
+                        );
+                    },
+                    Some(source) => source,
+                };
+                // FIXME(#22512): enqueues a task; unnecessary delay.
+                window.post_message(origin, &*source, StructuredCloneData::Vector(data))
+            },
         }
     }
 
@@ -2819,6 +2860,21 @@ impl ScriptThread {
 
         window.init_document(&document);
 
+        // For any similar-origin iframe, ensure that the contentWindow/contentDocument
+        // APIs resolve to the new window/document as soon as parsing starts.
+        if let Some(frame) = window_proxy
+            .frame_element()
+            .and_then(|e| e.downcast::<HTMLIFrameElement>())
+        {
+            let parent_pipeline = frame.global().pipeline_id();
+            self.handle_update_pipeline_id(
+                parent_pipeline,
+                window_proxy.browsing_context_id(),
+                incomplete.pipeline_id,
+                UpdatePipelineIdReason::Navigation,
+            );
+        }
+
         self.script_sender
             .send((incomplete.pipeline_id, ScriptMsg::ActivateDocument))
             .unwrap();
@@ -3320,8 +3376,8 @@ impl ScriptThread {
     fn handle_webvr_events(&self, pipeline_id: PipelineId, events: Vec<WebVREvent>) {
         let window = self.documents.borrow().find_window(pipeline_id);
         if let Some(window) = window {
-            let vr = window.Navigator().Vr();
-            vr.handle_webvr_events(events);
+            let xr = window.Navigator().Xr();
+            xr.handle_webvr_events(events);
         }
     }
 

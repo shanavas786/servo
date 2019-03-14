@@ -188,9 +188,10 @@ impl Event {
     }
 
     pub fn status(&self) -> EventStatus {
-        match self.DefaultPrevented() {
-            true => EventStatus::Canceled,
-            false => EventStatus::NotCanceled,
+        if self.DefaultPrevented() {
+            EventStatus::Canceled
+        } else {
+            EventStatus::NotCanceled
         }
     }
 
@@ -296,6 +297,30 @@ impl EventMethods for Event {
         self.cancelable.get()
     }
 
+    // https://dom.spec.whatwg.org/#dom-event-returnvalue
+    fn ReturnValue(&self) -> bool {
+        self.canceled.get() == EventDefault::Allowed
+    }
+
+    // https://dom.spec.whatwg.org/#dom-event-returnvalue
+    fn SetReturnValue(&self, val: bool) {
+        if !val {
+            self.PreventDefault();
+        }
+    }
+
+    // https://dom.spec.whatwg.org/#dom-event-cancelbubble
+    fn CancelBubble(&self) -> bool {
+        self.stop_propagation.get()
+    }
+
+    // https://dom.spec.whatwg.org/#dom-event-cancelbubble
+    fn SetCancelBubble(&self, value: bool) {
+        if value {
+            self.stop_propagation.set(true)
+        }
+    }
+
     // https://dom.spec.whatwg.org/#dom-event-timestamp
     fn TimeStamp(&self) -> u64 {
         self.timestamp
@@ -320,9 +345,10 @@ pub enum EventBubbles {
 
 impl From<bool> for EventBubbles {
     fn from(boolean: bool) -> Self {
-        match boolean {
-            true => EventBubbles::Bubbles,
-            false => EventBubbles::DoesNotBubble,
+        if boolean {
+            EventBubbles::Bubbles
+        } else {
+            EventBubbles::DoesNotBubble
         }
     }
 }
@@ -344,9 +370,10 @@ pub enum EventCancelable {
 
 impl From<bool> for EventCancelable {
     fn from(boolean: bool) -> Self {
-        match boolean {
-            true => EventCancelable::Cancelable,
-            false => EventCancelable::NotCancelable,
+        if boolean {
+            EventCancelable::Cancelable
+        } else {
+            EventCancelable::NotCancelable
         }
     }
 }

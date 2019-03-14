@@ -4,13 +4,16 @@
 
 use euclid::{Rect, Size2D};
 use gleam::gl;
+use gleam::gl::Gl;
 use ipc_channel::ipc::{IpcBytesReceiver, IpcBytesSender, IpcSharedMemory};
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use pixels::PixelFormat;
-use serde_bytes::ByteBuf;
 use std::borrow::Cow;
+use std::fmt;
 use std::num::NonZeroU32;
+use std::ops::Deref;
 use webrender_api::{DocumentId, ImageKey, PipelineId};
+use webvr_traits::WebVRFutureFrameData;
 
 /// Helper function that creates a WebGL channel (WebGLSender, WebGLReceiver) to be used in WebGLCommands.
 pub use crate::webgl_channel::webgl_channel;
@@ -173,6 +176,33 @@ impl WebGLMsgSender {
     }
 }
 
+#[derive(Deserialize, Serialize)]
+pub struct TruncatedDebug<T>(T);
+
+impl<T> From<T> for TruncatedDebug<T> {
+    fn from(v: T) -> TruncatedDebug<T> {
+        TruncatedDebug(v)
+    }
+}
+
+impl<T: fmt::Debug> fmt::Debug for TruncatedDebug<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut s = format!("{:?}", self.0);
+        if s.len() > 20 {
+            s.truncate(20);
+            s.push_str("...");
+        }
+        write!(f, "{}", s)
+    }
+}
+
+impl<T> Deref for TruncatedDebug<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
 /// WebGL Commands for a specific WebGLContext
 #[derive(Debug, Deserialize, Serialize)]
 pub enum WebGLCommand {
@@ -284,7 +314,7 @@ pub enum WebGLCommand {
         alpha_treatment: Option<AlphaTreatment>,
         y_axis_treatment: YAxisTreatment,
         pixel_format: Option<PixelFormat>,
-        data: IpcSharedMemory,
+        data: TruncatedDebug<IpcSharedMemory>,
     },
     TexSubImage2D {
         target: u32,
@@ -300,7 +330,7 @@ pub enum WebGLCommand {
         alpha_treatment: Option<AlphaTreatment>,
         y_axis_treatment: YAxisTreatment,
         pixel_format: Option<PixelFormat>,
-        data: IpcSharedMemory,
+        data: TruncatedDebug<IpcSharedMemory>,
     },
     DrawingBufferWidth(WebGLSender<i32>),
     DrawingBufferHeight(WebGLSender<i32>),
@@ -477,7 +507,12 @@ pub enum WebVRCommand {
     /// Start presenting to a VR device.
     Create(WebVRDeviceId),
     /// Synchronize the pose information to be used in the frame.
-    SyncPoses(WebVRDeviceId, f64, f64, WebGLSender<Result<ByteBuf, ()>>),
+    SyncPoses(
+        WebVRDeviceId,
+        f64,
+        f64,
+        WebGLSender<Result<WebVRFutureFrameData, ()>>,
+    ),
     /// Submit the frame to a VR device using the specified texture coordinates.
     SubmitFrame(WebVRDeviceId, [f32; 4], [f32; 4]),
     /// Stop presenting to a VR device
@@ -487,7 +522,7 @@ pub enum WebVRCommand {
 // Trait object that handles WebVR commands.
 // Receives the texture id and size associated to the WebGLContext.
 pub trait WebVRRenderHandler: Send {
-    fn handle(&mut self, command: WebVRCommand, texture: Option<(u32, Size2D<i32>)>);
+    fn handle(&mut self, gl: &dyn Gl, command: WebVRCommand, texture: Option<(u32, Size2D<i32>)>);
 }
 
 /// WebGL commands required to implement DOMToTexture feature.

@@ -11,7 +11,7 @@ use crate::properties::{PropertyId, ShorthandId};
 use crate::values::generics::box_::AnimationIterationCount as GenericAnimationIterationCount;
 use crate::values::generics::box_::Perspective as GenericPerspective;
 use crate::values::generics::box_::VerticalAlign as GenericVerticalAlign;
-use crate::values::specified::length::{LengthOrPercentage, NonNegativeLength};
+use crate::values::specified::length::{LengthPercentage, NonNegativeLength};
 use crate::values::specified::{AllowQuirks, Number};
 use crate::values::{CustomIdent, KeyframesName};
 use crate::Atom;
@@ -271,17 +271,16 @@ impl Display {
 }
 
 /// A specified value for the `vertical-align` property.
-pub type VerticalAlign = GenericVerticalAlign<LengthOrPercentage>;
+pub type VerticalAlign = GenericVerticalAlign<LengthPercentage>;
 
 impl Parse for VerticalAlign {
     fn parse<'i, 't>(
         context: &ParserContext,
         input: &mut Parser<'i, 't>,
     ) -> Result<Self, ParseError<'i>> {
-        if let Ok(lop) =
-            input.try(|i| LengthOrPercentage::parse_quirky(context, i, AllowQuirks::Yes))
+        if let Ok(lp) = input.try(|i| LengthPercentage::parse_quirky(context, i, AllowQuirks::Yes))
         {
-            return Ok(GenericVerticalAlign::Length(lop));
+            return Ok(GenericVerticalAlign::Length(lp));
         }
 
         try_match_ident_ignore_ascii_case! { input,
@@ -393,6 +392,76 @@ pub enum ScrollSnapType {
     Proximity,
 }
 
+/// Specified value of scroll-snap-align keyword value.
+#[allow(missing_docs)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    FromPrimitive,
+    Hash,
+    MallocSizeOf,
+    Parse,
+    PartialEq,
+    SpecifiedValueInfo,
+    ToComputedValue,
+    ToCss,
+)]
+#[repr(u8)]
+pub enum ScrollSnapAlignKeyword {
+    None,
+    Start,
+    End,
+    Center,
+}
+
+/// https://drafts.csswg.org/css-scroll-snap-1/#scroll-snap-align
+#[allow(missing_docs)]
+#[derive(Clone, Copy, Debug, Eq, MallocSizeOf, PartialEq, SpecifiedValueInfo, ToComputedValue)]
+#[repr(C)]
+pub struct ScrollSnapAlign {
+    block: ScrollSnapAlignKeyword,
+    inline: ScrollSnapAlignKeyword,
+}
+
+impl ScrollSnapAlign {
+    /// Returns `none`.
+    #[inline]
+    pub fn none() -> Self {
+        ScrollSnapAlign {
+            block: ScrollSnapAlignKeyword::None,
+            inline: ScrollSnapAlignKeyword::None,
+        }
+    }
+}
+
+impl Parse for ScrollSnapAlign {
+    /// [ none | start | end | center ]{1,2}
+    fn parse<'i, 't>(
+        _context: &ParserContext,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<ScrollSnapAlign, ParseError<'i>> {
+        let block = ScrollSnapAlignKeyword::parse(input)?;
+        let inline = input.try(ScrollSnapAlignKeyword::parse).unwrap_or(block);
+        Ok(ScrollSnapAlign { block, inline })
+    }
+}
+
+impl ToCss for ScrollSnapAlign {
+    fn to_css<W>(&self, dest: &mut CssWriter<W>) -> fmt::Result
+    where
+        W: Write,
+    {
+        self.block.to_css(dest)?;
+        if self.block != self.inline {
+            dest.write_str(" ")?;
+            self.inline.to_css(dest)?;
+        }
+        Ok(())
+    }
+}
+
 #[allow(missing_docs)]
 #[cfg_attr(feature = "servo", derive(Deserialize, Serialize))]
 #[derive(
@@ -411,6 +480,26 @@ pub enum ScrollSnapType {
 pub enum OverscrollBehavior {
     Auto,
     Contain,
+    None,
+}
+
+#[allow(missing_docs)]
+#[cfg_attr(feature = "servo", derive(Deserialize, Serialize))]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    MallocSizeOf,
+    Parse,
+    PartialEq,
+    SpecifiedValueInfo,
+    ToComputedValue,
+    ToCss,
+)]
+#[repr(u8)]
+pub enum OverflowAnchor {
+    Auto,
     None,
 }
 
@@ -762,20 +851,6 @@ impl Parse for Contain {
 
 /// A specified value for the `perspective` property.
 pub type Perspective = GenericPerspective<NonNegativeLength>;
-
-impl Parse for Perspective {
-    fn parse<'i, 't>(
-        context: &ParserContext,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self, ParseError<'i>> {
-        if input.try(|i| i.expect_ident_matching("none")).is_ok() {
-            return Ok(GenericPerspective::None);
-        }
-        Ok(GenericPerspective::Length(NonNegativeLength::parse(
-            context, input,
-        )?))
-    }
-}
 
 /// A given transition property, that is either `All`, a longhand or shorthand
 /// property, or an unsupported or custom property.

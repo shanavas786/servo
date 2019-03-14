@@ -136,35 +136,34 @@ impl<ColorType: Parse, UrlPaintServer: Parse> Parse for SVGPaint<ColorType, UrlP
     Debug,
     MallocSizeOf,
     PartialEq,
+    Parse,
     SpecifiedValueInfo,
     ToAnimatedValue,
     ToAnimatedZero,
     ToComputedValue,
     ToCss,
 )]
-pub enum SvgLengthOrPercentageOrNumber<LengthOrPercentage, Number> {
-    /// <length> | <percentage>
-    LengthOrPercentage(LengthOrPercentage),
+pub enum SvgLengthPercentageOrNumber<LengthPercentage, Number> {
     /// <number>
+    ///
+    /// Note that this needs to be before, so it gets parsed before the length,
+    /// to handle `0` correctly as a number instead of a `<length>`.
     Number(Number),
+    /// <length> | <percentage>
+    LengthPercentage(LengthPercentage),
 }
 
-/// Parsing the SvgLengthOrPercentageOrNumber. At first, we need to parse number
-/// since prevent converting to the length.
-impl<LengthOrPercentageType: Parse, NumberType: Parse> Parse
-    for SvgLengthOrPercentageOrNumber<LengthOrPercentageType, NumberType>
-{
-    fn parse<'i, 't>(
-        context: &ParserContext,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self, ParseError<'i>> {
-        if let Ok(num) = input.try(|i| NumberType::parse(context, i)) {
-            return Ok(SvgLengthOrPercentageOrNumber::Number(num));
-        }
+/// Whether the `context-value` value is enabled.
+#[cfg(feature = "gecko")]
+pub fn is_context_value_enabled(_: &ParserContext) -> bool {
+    use crate::gecko_bindings::structs::mozilla;
+    unsafe { mozilla::StaticPrefs_sVarCache_gfx_font_rendering_opentype_svg_enabled }
+}
 
-        let lop = LengthOrPercentageType::parse(context, input)?;
-        Ok(SvgLengthOrPercentageOrNumber::LengthOrPercentage(lop))
-    }
+/// Whether the `context-value` value is enabled.
+#[cfg(not(feature = "gecko"))]
+pub fn is_context_value_enabled(_: &ParserContext) -> bool {
+    false
 }
 
 /// An SVG length value supports `context-value` in addition to length.
@@ -175,6 +174,7 @@ impl<LengthOrPercentageType: Parse, NumberType: Parse> Parse
     Debug,
     MallocSizeOf,
     PartialEq,
+    Parse,
     SpecifiedValueInfo,
     ToAnimatedValue,
     ToAnimatedZero,
@@ -185,6 +185,7 @@ pub enum SVGLength<LengthType> {
     /// `<length> | <percentage> | <number>`
     Length(LengthType),
     /// `context-value`
+    #[parse(condition = "is_context_value_enabled")]
     ContextValue,
 }
 
@@ -216,6 +217,7 @@ pub enum SVGStrokeDashArray<LengthType> {
     Debug,
     MallocSizeOf,
     PartialEq,
+    Parse,
     SpecifiedValueInfo,
     ToAnimatedZero,
     ToComputedValue,

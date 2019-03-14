@@ -53,8 +53,8 @@ ${helpers.single_keyword(
 
 ${helpers.predefined_type(
     "text-indent",
-    "LengthOrPercentage",
-    "computed::LengthOrPercentage::Length(computed::Length::new(0.))",
+    "LengthPercentage",
+    "computed::LengthPercentage::zero()",
     animation_value_type="ComputedValue",
     spec="https://drafts.csswg.org/css-text/#propdef-text-indent",
     allow_quirks=True,
@@ -257,10 +257,10 @@ ${helpers.predefined_type(
 
 ${helpers.predefined_type(
     "-moz-tab-size",
-    "MozTabSize",
-    "generics::text::MozTabSize::Number(From::from(8.0))",
+    "NonNegativeLengthOrNumber",
+    "generics::length::LengthOrNumber::Number(From::from(8.0))",
     products="gecko",
-    animation_value_type="AnimatedMozTabSize",
+    animation_value_type="LengthOrNumber",
     spec="https://drafts.csswg.org/css-text-3/#tab-size-property",
 )}
 
@@ -295,7 +295,7 @@ ${helpers.predefined_type(
     "-webkit-text-stroke-width",
     "BorderSideWidth",
     "crate::values::computed::NonNegativeLength::new(0.)",
-    initial_specified_value="specified::BorderSideWidth::Length(specified::Length::zero())",
+    initial_specified_value="specified::BorderSideWidth::zero()",
     computed_type="crate::values::computed::NonNegativeLength",
     products="gecko",
     gecko_pref="layout.css.prefixes.webkit",
@@ -349,8 +349,8 @@ ${helpers.single_keyword(
     "-moz-control-character-visibility",
     "hidden visible",
     gecko_constant_prefix="NS_STYLE_CONTROL_CHARACTER_VISIBILITY",
-    gecko_ffi_name="mControlCharacterVisibility",
     animation_value_type="none",
+    gecko_ffi_name="mControlCharacterVisibility",
     products="gecko",
     spec="Nonstandard",
 )}

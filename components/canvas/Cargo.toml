@@ -26,9 +26,11 @@ half = "1"
 ipc-channel = "0.11"
 log = "0.4"
 num-traits = "0.2"
-offscreen_gl_context = {version = "0.21", features = ["serde", "osmesa"]}
+offscreen_gl_context = {version = "0.22", features = ["serde", "osmesa"]}
+pathfinder_gl = {git = "https://github.com/pcwalton/pathfinder", branch = "pf3"}
 pixels = {path = "../pixels"}
 serde_bytes = "0.10"
 servo_config = {path = "../config"}
+usvg = "0.4"
 webrender = {git = "https://github.com/servo/webrender"}
 webrender_api = {git = "https://github.com/servo/webrender", features = ["ipc"]}

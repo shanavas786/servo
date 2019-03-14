@@ -103,10 +103,7 @@ where
     }
 }
 
-impl<V> ToAnimatedZero for Spacing<V>
-where
-    V: From<Au>,
-{
+impl<V> ToAnimatedZero for Spacing<V> {
     #[inline]
     fn to_animated_zero(&self) -> Result<Self, ()> {
         Err(())
@@ -126,7 +123,7 @@ where
     ToAnimatedValue,
     ToCss,
 )]
-pub enum LineHeight<Number, LengthOrPercentage> {
+pub enum LineHeight<Number, LengthPercentage> {
     /// `normal`
     Normal,
     /// `-moz-block-height`
@@ -135,7 +132,7 @@ pub enum LineHeight<Number, LengthOrPercentage> {
     /// `<number>`
     Number(Number),
     /// `<length-or-percentage>`
-    Length(LengthOrPercentage),
+    Length(LengthPercentage),
 }
 
 impl<N, L> ToAnimatedZero for LineHeight<N, L> {
@@ -151,26 +148,4 @@ impl<N, L> LineHeight<N, L> {
     pub fn normal() -> Self {
         LineHeight::Normal
     }
-}
-
-/// A generic value for the `-moz-tab-size` property.
-#[derive(
-    Animate,
-    Clone,
-    ComputeSquaredDistance,
-    Copy,
-    Debug,
-    MallocSizeOf,
-    PartialEq,
-    SpecifiedValueInfo,
-    ToAnimatedValue,
-    ToAnimatedZero,
-    ToComputedValue,
-    ToCss,
-)]
-pub enum MozTabSize<Number, Length> {
-    /// A number.
-    Number(Number),
-    /// A length.
-    Length(Length),
 }

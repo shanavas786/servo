@@ -11,7 +11,7 @@ use crate::parser::{Parse, ParserContext};
 #[cfg(feature = "gecko")]
 use crate::properties::longhands::system_colors::SystemColor;
 use crate::values::computed::{Color as ComputedColor, Context, ToComputedValue};
-use crate::values::generics::color::Color as GenericColor;
+use crate::values::generics::color::{Color as GenericColor, ColorOrAuto as GenericColorOrAuto};
 use crate::values::specified::calc::CalcNode;
 use cssparser::{AngleOrNumber, Color as CSSParserColor, Parser, Token, RGBA};
 use cssparser::{BasicParseErrorKind, NumberOrPercentage, ParseErrorKind};
@@ -274,8 +274,9 @@ impl Color {
                 if ident.len() != 3 && ident.len() != 6 {
                     return Err(location.new_custom_error(StyleParseErrorKind::UnspecifiedError));
                 }
-                return parse_hash_color(ident.as_bytes())
-                    .map_err(|()| location.new_custom_error(StyleParseErrorKind::UnspecifiedError));
+                return parse_hash_color(ident.as_bytes()).map_err(|()| {
+                    location.new_custom_error(StyleParseErrorKind::UnspecifiedError)
+                });
             },
             ref t => {
                 return Err(location.new_unexpected_token_error(t.clone()));
@@ -469,3 +470,6 @@ impl Parse for ColorPropertyValue {
         Color::parse_quirky(context, input, AllowQuirks::Yes).map(ColorPropertyValue)
     }
 }
+
+/// auto | <color>
+pub type ColorOrAuto = GenericColorOrAuto<Color>;

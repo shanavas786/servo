@@ -19,7 +19,7 @@ use std::fmt;
 use std::sync::Arc;
 use style::logical_geometry::LogicalSize;
 use style::properties::ComputedValues;
-use style::values::computed::{LengthOrPercentageOrAuto, LengthOrPercentageOrNone};
+use style::values::computed::{MaxSize, Size};
 use style::values::generics::column::ColumnCount;
 use style::values::Either;
 
@@ -154,11 +154,16 @@ impl Flow for MulticolFlow {
             this_fragment_is_empty: true,
             available_block_size: {
                 let style = &self.block_flow.fragment.style;
-                if let LengthOrPercentageOrAuto::Length(length) = style.content_block_size() {
-                    Au::from(length)
-                } else if let LengthOrPercentageOrNone::Length(length) = style.max_block_size() {
-                    Au::from(length)
-                } else {
+                let size = match style.content_block_size() {
+                    Size::Auto => None,
+                    Size::LengthPercentage(ref lp) => lp.maybe_to_used_value(None),
+                };
+                let size = size.or_else(|| match style.max_block_size() {
+                    MaxSize::None => None,
+                    MaxSize::LengthPercentage(ref lp) => lp.maybe_to_used_value(None),
+                });
+
+                size.unwrap_or_else(|| {
                     // FIXME: do column balancing instead
                     // FIXME: (until column balancing) substract margins/borders/padding
                     LogicalSize::from_physical(
@@ -166,7 +171,7 @@ impl Flow for MulticolFlow {
                         ctx.shared_context().viewport_size(),
                     )
                     .block
-                }
+                })
             },
         });
 

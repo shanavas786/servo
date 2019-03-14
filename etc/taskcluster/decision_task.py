@@ -10,11 +10,11 @@ from decisionlib import CONFIG, SHARED
 
 
 def main(task_for):
-    assert CONFIG.git_ref.startswith("refs/heads/")
-    branch = CONFIG.git_ref[len("refs/heads/"):]
-    CONFIG.treeherder_repository_name = "servo-" + (
-        branch if not branch.startswith("try-") else "try"
-    )
+    if CONFIG.git_ref.startswith("refs/heads/"):
+        branch = CONFIG.git_ref[len("refs/heads/"):]
+        CONFIG.treeherder_repository_name = "servo-" + (
+            branch if not branch.startswith("try-") else "try"
+        )
 
     if task_for == "github-push":
         # FIXME https://github.com/servo/servo/issues/22325 implement these:
@@ -30,7 +30,8 @@ def main(task_for):
         linux_wpt = lambda: None  # Shadows the existing top-level function
 
         all_tests = [
-            linux_tidy_unit_docs,
+            linux_tidy_unit,
+            linux_docs,
             windows_unit,
             macos_unit,
             magicleap_dev,
@@ -56,7 +57,7 @@ def main(task_for):
             # https://github.com/servo/saltfs/blob/master/homu/map.jinja
 
             "try-mac": [macos_unit],
-            "try-linux": [linux_tidy_unit_docs],
+            "try-linux": [linux_tidy_unit],
             "try-windows": [windows_unit],
             "try-magicleap": [magicleap_dev],
             "try-arm": [linux_arm32_dev, linux_arm64_dev],
@@ -71,6 +72,17 @@ def main(task_for):
         }
         for function in by_branch_name.get(branch, []):
             function()
+
+    elif task_for == "github-pull-request":
+        CONFIG.treeherder_repository_name = "servo-prs"
+        CONFIG.index_read_only = True
+
+        # We want the merge commit that GitHub creates for the PR.
+        # The event does contain a `pull_request.merge_commit_sha` key, but it is wrong:
+        # https://github.com/servo/servo/pull/22597#issuecomment-451518810
+        CONFIG.git_sha_is_current_head()
+
+        tidy_untrusted()
 
     # https://tools.taskcluster.net/hooks/project-servo/daily
     elif task_for == "daily":
@@ -109,6 +121,7 @@ linux_build_env = {
 macos_build_env = {}
 windows_build_env = {
     "LIB": "%HOMEDRIVE%%HOMEPATH%\\gst\\gstreamer\\1.0\\x86_64\\lib;%LIB%",
+    "GSTREAMER_1_0_ROOT_X86_64": "%HOMEDRIVE%%HOMEPATH%\\gst\\gstreamer\\1.0\\x86_64\\",
 }
 windows_sparse_checkout = [
     "/*",
@@ -120,10 +133,26 @@ windows_sparse_checkout = [
 ]
 
 
-def linux_tidy_unit_docs():
+def tidy_untrusted():
     return (
-        linux_build_task("Tidy + dev build + unit tests + docs")
-        .with_treeherder("Linux x64", "Tidy+Unit+Doc")
+        decisionlib.DockerWorkerTask("Tidy")
+        .with_worker_type("servo-docker-untrusted")
+        .with_treeherder("Linux x64", "Tidy")
+        .with_max_run_time_minutes(60)
+        .with_dockerfile(dockerfile_path("build"))
+        .with_env(**build_env, **unix_build_env, **linux_build_env)
+        .with_repo()
+        .with_script("""
+            ./mach test-tidy --no-progress --all
+        """)
+        .create()
+    )
+
+
+def linux_tidy_unit():
+    return (
+        linux_build_task("Tidy + dev build + unit tests")
+        .with_treeherder("Linux x64", "Tidy+Unit")
         .with_script("""
             ./mach test-tidy --no-progress --all
             ./mach build --dev
@@ -137,7 +166,15 @@ def linux_tidy_unit_docs():
             ./etc/taskcluster/mock.py
             ./etc/ci/lockfile_changed.sh
             ./etc/ci/check_no_panic.sh
+        """)
+        .find_or_create("linux_tidy_unit." + CONFIG.git_sha)
+    )
 
+def linux_docs():
+    return (
+        linux_build_task("Docs")
+        .with_treeherder("Linux x64", "Doc")
+        .with_script("""
             ./mach doc
             cd target/doc
             git init
@@ -149,7 +186,6 @@ def linux_tidy_unit_docs():
         .with_artifacts("/repo/target/doc/docs.bundle")
         .find_or_create("docs." + CONFIG.git_sha)
     )
-
 
 def upload_docs():
     docs_build_task_id = decisionlib.Task.find("docs." + CONFIG.git_sha)
@@ -452,7 +488,7 @@ def daily_tasks_setup():
         "expires": SHARED.from_now_json(log_artifacts_expire_in),
     })
 
-    # Unlike when reacting to a GitHub event,
+    # Unlike when reacting to a GitHub push event,
     # the commit hash is not known until we clone the repository.
     CONFIG.git_sha_is_current_head()
 
@@ -511,7 +547,6 @@ def linux_build_task(name, *, build_env=build_env):
         .with_dockerfile(dockerfile_path("build"))
         .with_env(**build_env, **unix_build_env, **linux_build_env)
         .with_repo()
-        .with_index_and_artifacts_expire_in(build_artifacts_expire_in)
     )
 
 
@@ -536,6 +571,12 @@ def windows_build_task(name):
         .with_repo(sparse_checkout=windows_sparse_checkout)
         .with_python2()
         .with_rustup()
+        .with_repacked_msi(
+            url="https://gstreamer.freedesktop.org/data/pkg/windows/" +
+                "1.14.3/gstreamer-1.0-x86_64-1.14.3.msi",
+            sha256="f4f20c713766ed6718b914b9ae57ed993a59ffe194e6ef530c8547508b4484d8",
+            path="gst",
+        )
         .with_repacked_msi(
             url="https://gstreamer.freedesktop.org/data/pkg/windows/" +
                 "1.14.3/gstreamer-1.0-devel-x86_64-1.14.3.msi",

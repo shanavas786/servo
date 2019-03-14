@@ -6,11 +6,10 @@
 
 #[cfg(feature = "servo")]
 use crate::properties::StyleBuilder;
-use crate::values::computed::length::{Length, LengthOrPercentage};
+use crate::values::computed::length::{Length, LengthPercentage};
 use crate::values::computed::{NonNegativeLength, NonNegativeNumber};
 use crate::values::generics::text::InitialLetter as GenericInitialLetter;
 use crate::values::generics::text::LineHeight as GenericLineHeight;
-use crate::values::generics::text::MozTabSize as GenericMozTabSize;
 use crate::values::generics::text::Spacing;
 use crate::values::specified::text::TextOverflowSide;
 use crate::values::specified::text::{TextEmphasisFillMode, TextEmphasisShapeKeyword};
@@ -29,7 +28,7 @@ pub type InitialLetter = GenericInitialLetter<CSSFloat, CSSInteger>;
 pub type LetterSpacing = Spacing<Length>;
 
 /// A computed value for the `word-spacing` property.
-pub type WordSpacing = Spacing<LengthOrPercentage>;
+pub type WordSpacing = Spacing<LengthPercentage>;
 
 /// A computed value for the `line-height` property.
 pub type LineHeight = GenericLineHeight<NonNegativeNumber, NonNegativeLength>;
@@ -123,9 +122,6 @@ impl TextDecorationsInEffect {
         result
     }
 }
-
-/// A specified value for the `-moz-tab-size` property.
-pub type MozTabSize = GenericMozTabSize<NonNegativeNumber, NonNegativeLength>;
 
 /// computed value for the text-emphasis-style property
 #[derive(Clone, Debug, MallocSizeOf, PartialEq, ToCss)]

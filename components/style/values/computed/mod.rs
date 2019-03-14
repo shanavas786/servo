@@ -28,7 +28,6 @@ use std::cell::RefCell;
 use std::cmp;
 use std::f32;
 use std::fmt::{self, Write};
-use style_traits::cursor::CursorKind;
 use style_traits::{CssWriter, ToCss};
 
 #[cfg(feature = "gecko")]
@@ -43,10 +42,10 @@ pub use self::border::{BorderImageRepeat, BorderImageSideWidth};
 pub use self::border::{BorderImageSlice, BorderImageWidth};
 pub use self::box_::{AnimationIterationCount, AnimationName, Contain};
 pub use self::box_::{Appearance, BreakBetween, BreakWithin, Clear, Float};
-pub use self::box_::{Display, Overflow, TransitionProperty};
+pub use self::box_::{Display, Overflow, OverflowAnchor, TransitionProperty};
 pub use self::box_::{OverflowClipBox, OverscrollBehavior, Perspective, Resize};
-pub use self::box_::{ScrollSnapType, TouchAction, VerticalAlign, WillChange};
-pub use self::color::{Color, ColorPropertyValue, RGBAColor};
+pub use self::box_::{ScrollSnapAlign, ScrollSnapType, TouchAction, VerticalAlign, WillChange};
+pub use self::color::{Color, ColorOrAuto, ColorPropertyValue, RGBAColor};
 pub use self::column::ColumnCount;
 pub use self::counters::{Content, ContentItem, CounterIncrement, CounterReset};
 pub use self::easing::TimingFunction;
@@ -62,9 +61,9 @@ pub use self::font::{MozScriptLevel, MozScriptMinSize, MozScriptSizeMultiplier, 
 pub use self::gecko::ScrollSnapPoint;
 pub use self::image::{Gradient, GradientItem, Image, ImageLayer, LineDirection, MozImageRect};
 pub use self::length::{CSSPixelLength, ExtremumLength, NonNegativeLength};
-pub use self::length::{CalcLengthOrPercentage, Length, LengthOrNumber, LengthOrPercentage};
-pub use self::length::{LengthOrPercentageOrAuto, LengthOrPercentageOrNone, MaxLength, MozLength};
-pub use self::length::{NonNegativeLengthOrPercentage, NonNegativeLengthOrPercentageOrAuto};
+pub use self::length::{Length, LengthOrNumber, LengthPercentage, NonNegativeLengthOrNumber};
+pub use self::length::{LengthPercentageOrAuto, MaxSize, Size};
+pub use self::length::{NonNegativeLengthPercentage, NonNegativeLengthPercentageOrAuto};
 #[cfg(feature = "gecko")]
 pub use self::list::ListStyleType;
 pub use self::list::{QuotePair, Quotes};
@@ -72,13 +71,13 @@ pub use self::motion::OffsetPath;
 pub use self::outline::OutlineStyle;
 pub use self::percentage::{NonNegativePercentage, Percentage};
 pub use self::position::{GridAutoFlow, GridTemplateAreas, Position, ZIndex};
-pub use self::rect::LengthOrNumberRect;
+pub use self::rect::NonNegativeLengthOrNumberRect;
 pub use self::resolution::Resolution;
 pub use self::svg::MozContextProperties;
 pub use self::svg::{SVGLength, SVGOpacity, SVGPaint, SVGPaintKind};
 pub use self::svg::{SVGPaintOrder, SVGStrokeDashArray, SVGWidth};
 pub use self::table::XSpan;
-pub use self::text::{InitialLetter, LetterSpacing, LineHeight, MozTabSize};
+pub use self::text::{InitialLetter, LetterSpacing, LineHeight};
 pub use self::text::{OverflowWrap, TextOverflow, WordSpacing};
 pub use self::text::{TextAlign, TextEmphasisPosition, TextEmphasisStyle};
 pub use self::time::Time;
@@ -86,7 +85,7 @@ pub use self::transform::{Rotate, Scale, Transform, TransformOperation};
 pub use self::transform::{TransformOrigin, TransformStyle, Translate};
 #[cfg(feature = "gecko")]
 pub use self::ui::CursorImage;
-pub use self::ui::{ColorOrAuto, Cursor, MozForceBrokenImageIcon, UserSelect};
+pub use self::ui::{Cursor, MozForceBrokenImageIcon, UserSelect};
 pub use super::specified::{BorderStyle, TextDecorationLine};
 pub use super::{Auto, Either, None_};
 pub use app_units::Au;
@@ -452,7 +451,6 @@ trivial_to_computed_value!(u8);
 trivial_to_computed_value!(u16);
 trivial_to_computed_value!(u32);
 trivial_to_computed_value!(Atom);
-trivial_to_computed_value!(CursorKind);
 #[cfg(feature = "servo")]
 trivial_to_computed_value!(Prefix);
 trivial_to_computed_value!(String);
@@ -538,9 +536,21 @@ impl From<GreaterThanOrEqualToOneNumber> for CSSFloat {
 
 #[allow(missing_docs)]
 #[derive(Clone, ComputeSquaredDistance, Copy, Debug, MallocSizeOf, PartialEq, ToCss)]
+#[repr(C, u8)]
 pub enum NumberOrPercentage {
     Percentage(Percentage),
     Number(Number),
+}
+
+impl NumberOrPercentage {
+    fn clamp_to_non_negative(self) -> Self {
+        match self {
+            NumberOrPercentage::Percentage(p) => {
+                NumberOrPercentage::Percentage(p.clamp_to_non_negative())
+            },
+            NumberOrPercentage::Number(n) => NumberOrPercentage::Number(n.max(0.)),
+        }
+    }
 }
 
 impl ToComputedValue for specified::NumberOrPercentage {
@@ -569,6 +579,31 @@ impl ToComputedValue for specified::NumberOrPercentage {
                 specified::NumberOrPercentage::Number(ToComputedValue::from_computed_value(&number))
             },
         }
+    }
+}
+
+/// A non-negative <number-percentage>.
+pub type NonNegativeNumberOrPercentage = NonNegative<NumberOrPercentage>;
+
+impl NonNegativeNumberOrPercentage {
+    /// Returns the `100%` value.
+    #[inline]
+    pub fn hundred_percent() -> Self {
+        NonNegative(NumberOrPercentage::Percentage(Percentage::hundred()))
+    }
+}
+
+impl ToAnimatedValue for NonNegativeNumberOrPercentage {
+    type AnimatedValue = NumberOrPercentage;
+
+    #[inline]
+    fn to_animated_value(self) -> Self::AnimatedValue {
+        self.0
+    }
+
+    #[inline]
+    fn from_animated_value(animated: Self::AnimatedValue) -> Self {
+        NonNegative(animated.clamp_to_non_negative())
     }
 }
 
@@ -653,20 +688,20 @@ impl ToCss for ClipRect {
 pub type ClipRectOrAuto = Either<ClipRect, Auto>;
 
 /// The computed value of a grid `<track-breadth>`
-pub type TrackBreadth = GenericTrackBreadth<LengthOrPercentage>;
+pub type TrackBreadth = GenericTrackBreadth<LengthPercentage>;
 
 /// The computed value of a grid `<track-size>`
-pub type TrackSize = GenericTrackSize<LengthOrPercentage>;
+pub type TrackSize = GenericTrackSize<LengthPercentage>;
 
 /// The computed value of a grid `<track-list>`
 /// (could also be `<auto-track-list>` or `<explicit-track-list>`)
-pub type TrackList = GenericTrackList<LengthOrPercentage, Integer>;
+pub type TrackList = GenericTrackList<LengthPercentage, Integer>;
 
 /// The computed value of a `<grid-line>`.
 pub type GridLine = GenericGridLine<Integer>;
 
 /// `<grid-template-rows> | <grid-template-columns>`
-pub type GridTemplateComponent = GenericGridTemplateComponent<LengthOrPercentage, Integer>;
+pub type GridTemplateComponent = GenericGridTemplateComponent<LengthPercentage, Integer>;
 
 impl ClipRectOrAuto {
     /// Return an auto (default for clip-rect and image-region) value

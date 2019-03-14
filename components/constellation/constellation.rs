@@ -113,7 +113,7 @@ use compositing::compositor_thread::Msg as ToCompositorMsg;
 use compositing::SendableFrameTree;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use devtools_traits::{ChromeToDevtoolsControlMsg, DevtoolsControlMsg};
-use embedder_traits::{EmbedderMsg, EmbedderProxy};
+use embedder_traits::{Cursor, EmbedderMsg, EmbedderProxy};
 use euclid::{Size2D, TypedScale, TypedSize2D};
 use gfx::font_cache_thread::FontCacheThread;
 use gfx_traits::Epoch;
@@ -146,9 +146,9 @@ use script_traits::{DocumentActivity, DocumentState, LayoutControlMsg, LoadData}
 use script_traits::{
     IFrameLoadInfo, IFrameLoadInfoWithData, IFrameSandboxState, TimerSchedulerMsg,
 };
+use script_traits::{IFrameSizeMsg, WindowSizeData, WindowSizeType};
 use script_traits::{LayoutMsg as FromLayoutMsg, ScriptMsg as FromScriptMsg, ScriptThreadFactory};
 use script_traits::{SWManagerMsg, ScopeThings, UpdatePipelineIdReason, WebDriverCommandMsg};
-use script_traits::{WindowSizeData, WindowSizeType};
 use serde::{Deserialize, Serialize};
 use servo_config::opts;
 use servo_config::prefs::PREFS;
@@ -164,7 +164,6 @@ use std::process;
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
 use std::thread;
-use style_traits::cursor::CursorKind;
 use style_traits::viewport::ViewportConstraints;
 use style_traits::CSSPixel;
 use webvr_traits::{WebVREvent, WebVRMsg};
@@ -615,11 +614,12 @@ where
                 // If we are in multiprocess mode,
                 // a dedicated per-process hang monitor will be initialized later inside the content process.
                 // See run_content_process in servo/lib.rs
-                let background_monitor_register = match opts::multiprocess() {
-                    true => None,
-                    false => Some(HangMonitorRegister::init(
+                let background_monitor_register = if opts::multiprocess() {
+                    None
+                } else {
+                    Some(HangMonitorRegister::init(
                         background_hang_monitor_sender.clone(),
-                    )),
+                    ))
                 };
 
                 let (ipc_layout_sender, ipc_layout_receiver) =
@@ -1279,8 +1279,13 @@ where
                     warn!("constellation got set final url message for dead pipeline");
                 }
             },
-            FromScriptMsg::PostMessage(browsing_context_id, origin, data) => {
-                self.handle_post_message_msg(browsing_context_id, origin, data);
+            FromScriptMsg::PostMessage {
+                target: browsing_context_id,
+                source: source_pipeline_id,
+                target_origin: origin,
+                data,
+            } => {
+                self.handle_post_message_msg(browsing_context_id, source_pipeline_id, origin, data);
             },
             FromScriptMsg::Focus => {
                 self.handle_focus_msg(source_pipeline_id);
@@ -1832,17 +1837,14 @@ where
         }
     }
 
-    fn handle_iframe_size_msg(
-        &mut self,
-        iframe_sizes: Vec<(BrowsingContextId, TypedSize2D<f32, CSSPixel>)>,
-    ) {
-        for (browsing_context_id, size) in iframe_sizes {
+    fn handle_iframe_size_msg(&mut self, iframe_sizes: Vec<IFrameSizeMsg>) {
+        for IFrameSizeMsg { data, type_ } in iframe_sizes {
             let window_size = WindowSizeData {
-                initial_viewport: size,
+                initial_viewport: data.size,
                 device_pixel_ratio: self.window_size.device_pixel_ratio,
             };
 
-            self.resize_browsing_context(window_size, WindowSizeType::Initial, browsing_context_id);
+            self.resize_browsing_context(window_size, type_, data.id);
         }
     }
 
@@ -2133,7 +2135,7 @@ where
             .send(ToCompositorMsg::PendingPaintMetric(pipeline_id, epoch))
     }
 
-    fn handle_set_cursor_msg(&mut self, cursor: CursorKind) {
+    fn handle_set_cursor_msg(&mut self, cursor: Cursor) {
         self.embedder_proxy
             .send((None, EmbedderMsg::SetCursor(cursor)))
     }
@@ -2844,6 +2846,7 @@ where
     fn handle_post_message_msg(
         &mut self,
         browsing_context_id: BrowsingContextId,
+        source_pipeline: PipelineId,
         origin: Option<ImmutableOrigin>,
         data: Vec<u8>,
     ) {
@@ -2856,7 +2859,17 @@ where
             },
             Some(browsing_context) => browsing_context.pipeline_id,
         };
-        let msg = ConstellationControlMsg::PostMessage(pipeline_id, origin, data);
+        let source_browsing_context = match self.pipelines.get(&source_pipeline) {
+            Some(pipeline) => pipeline.top_level_browsing_context_id,
+            None => return warn!("PostMessage from closed pipeline {:?}", source_pipeline),
+        };
+        let msg = ConstellationControlMsg::PostMessage {
+            target: pipeline_id,
+            source: source_pipeline,
+            source_browsing_context: source_browsing_context,
+            target_origin: origin,
+            data,
+        };
         let result = match self.pipelines.get(&pipeline_id) {
             Some(pipeline) => pipeline.event_loop.send(msg),
             None => return warn!("postMessage to closed pipeline {}.", pipeline_id),
@@ -3114,7 +3127,9 @@ where
                 let control_msg = ConstellationControlMsg::WebDriverScriptCommand(pipeline_id, cmd);
                 let result = match self.pipelines.get(&pipeline_id) {
                     Some(pipeline) => pipeline.event_loop.send(control_msg),
-                    None => return warn!("Pipeline {:?} ScriptCommand after closure.", pipeline_id),
+                    None => {
+                        return warn!("Pipeline {:?} ScriptCommand after closure.", pipeline_id)
+                    },
                 };
                 if let Err(e) = result {
                     self.handle_send_error(pipeline_id, e);
